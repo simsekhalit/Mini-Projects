@@ -1,7 +1,7 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
 cd %~dp0
-set title=Simpor - Smart Pinger (~)
+set title=Simpor - Smart Pinger (170226)
 ::configuration
 set addr=lux.valve.net
 set last_x_packets=1000
