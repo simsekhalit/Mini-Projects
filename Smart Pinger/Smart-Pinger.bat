@@ -1,11 +1,12 @@
 @echo off
+@chcp 1252 >nul
 setlocal enableextensions enabledelayedexpansion
 cd %~dp0
 set title=Simpor - Smart Pinger (170226)
 ::configuration
 set addr=lux.valve.net
 set last_x_packets=1000
-
+set waitout=1000
 
 :main
 echo Pinging server: %addr%
@@ -33,7 +34,7 @@ goto :EOF
 
 :create_table_ping
 ::successful ping
-for /f "delims== skip=1 tokens=4" %%A in ('ping !addr! -n 1 ^| find "ms"') do (
+for /f "delims== skip=1 tokens=4" %%A in ('ping !addr! -n 1 -w !waitout! ^| find "ms"') do (
 	set ping_arr[%~1]=%%A
 	set ping_arr[%~1]=!ping_arr[%~1]:~1!
 	set ping_arr[%~1]=!ping_arr[%~1]:~0,-2!
@@ -68,7 +69,7 @@ if %sum% neq 0 (
 )
 set /a display_loss=100 * !loss! / %~1
 cls
-echo Min: %display_min% ^| Max: %display_max% ^| Avg: %display_avg% ^| Loss: %loss% out of %~1 (%display_loss%%%) (%max_loss%)
+echo Min: %display_min% ^| Max: %display_max% ^| Avg: %display_avg% ^| Loss: (%display_loss%%%) (%loss% out of %~1) (%max_loss% at peak)
 goto :EOF
 
 
@@ -138,6 +139,6 @@ if %sum% neq 0 (
 )
 set /a display_loss=100 * !loss! / !last_x_packets!
 cls
-echo Min: %display_min% ^| Max: %display_max% ^| Avg: %display_avg% ^| Loss: %loss% out of %last_x_packets% (!display_loss!%%) (%max_loss%)
+echo Min: %display_min% ^| Max: %display_max% ^| Avg: %display_avg% ^| Loss: (!display_loss!%%) (%loss% out of %last_x_packets%)  (%max_loss% at peak) 
 goto :EOF
 
