@@ -1,0 +1,12 @@
+users
+_id, user_name, balance
+
+products
+_id, product_name, photo_link
+
+market
+_id, user_id, product_id, quantity_on_sale, quantity_total, price
+
+orders
+_id, product, count, seller, buyer, rating
+

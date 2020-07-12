@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CENG495 - Homework 2</title>
+</head>
+<style>
+    table, th, td {
+        border: 1px solid black;
+        width: 90%;
+    }
+    img {
+        width:200px;height:200px;
+    }
+    td{
+        text-align:center;
+    }
+</style>
+<body>
+<p id="ret" style="color:darkred;"><br></p>
+<button id="button_logout" onclick="logout()">Logout</button>
+<h4>User Profile</h4>
+<p id="user_id"></p>
+<p id="user_name"></p>
+<p id="wallet"></p>
+<p id="rating"></p>
+<button id="button_goto_store" onclick="goto_store()">Go to Store</button>
+<br><br>
+<h4>Transaction</h4>
+<label>Amount: <input id="amount" type="text">
+</label>
+<button disabled class="transaction" id="button_deposit" onclick="deposit()">Deposit</button>
+<button disabled class="transaction" id="button_withdraw" onclick="withdraw()">Withdraw</button>
+<br><br>
+<h4>Order History</h4>
+<table id="order_history"></table>
+</body>
+<script src="https://s3.amazonaws.com/stitch-sdks/js/bundles/4.3.1/stitch.js"></script>
+<script>
+    function append_order(photo_link, product_name, price, quantity, seller_name, rating_id){
+        let rate = ratings[rating_id]["rate"];
+        if (rate === 0){
+            rate = `<select id="${rating_id}"><option value="1">1</option><option value="2">2</option>` +
+                   `<option value="3">3</option><option value="4">4</option><option value="5">5</option></select>` +
+                   `<button class="rate" onclick="rate('${rating_id}')">Rate</button>`;
+        }
+        let order_history = document.getElementById("order_history");
+        let tr = document.createElement("tr");
+        tr.innerHTML = `<td><img src=${photo_link} alt=""></td><td>${product_name}</td><td>${price}</td><td>${quantity}</td><td>${seller_name}</td>` +
+            `<td>${rate}</td>`;
+        order_history.appendChild(tr);
+    }
+
+    function check_user_profile(){
+        if (!self_user_id || !self_user_name || !self_balance){
+            window.location.replace("index.html")
+        }
+    }
+
+    function deposit(){
+        let amount_text_box = document.getElementById("amount");
+        let amount = parseInt(amount_text_box.value);
+        amount_text_box.value = "";
+        if (!isFinite(amount)){
+            alert("Deposit amount must be a number!");
+            return;
+        }
+        if (amount < 1){
+            alert("Deposit amount cannot be negative or zero!");
+            return;
+        }
+        update_balance(amount);
+    }
+
+    function goto_store(){
+        window.location.replace("store.html");
+    }
+
+    function logout(){
+        window.location.replace("index.html");
+    }
+
+    function parse_orders(query_orders){
+        for (let i in query_orders){
+            orders = query_orders;
+        }
+    }
+
+    function parse_products(query_products){
+        for (i in query_products){
+            let product_id = query_products[i]["_id"].toString();
+            let product_name = query_products[i]["product_name"];
+            let photo_link = query_products[i]["photo_link"];
+            products[product_id] = {"product_name": product_name, "photo_link": photo_link};
+        }
+    }
+
+    function parse_ratings(query_ratings){
+        let rating_total = 0;
+        let rating_count = 0;
+        for (i in query_ratings){
+            if (query_ratings[i]["seller_id"].toString() === self_user_id){
+                if (query_ratings[i]["rate"]){
+                    rating_total += query_ratings[i]["rate"];
+                    rating_count++;
+                }
+            }
+            else{
+                let rating_id = query_ratings[i]["_id"].toString();
+                let seller_id = query_ratings[i]["seller_id"].toString();
+                let product_id = query_ratings[i]["product_id"].toString();
+                let rate = query_ratings[i]["rate"];
+                ratings[seller_id + product_id] = {"rating_id": rating_id, "rate": rate};
+            }
+        }
+        if (rating_total === 0){
+            rating = "-";
+        }
+        else{
+            rating = (rating_total / rating_count).toFixed(1);
+        }
+    }
+
+    function parse_users(query_users){
+        for (let i in query_users){
+            let user_id = query_users[i]["_id"].toString();
+            let user_name = query_users[i]["user_name"];
+            users[user_id] = {"user_name": user_name}
+        }
+    }
+
+    function query_order_history(){
+        switch_all_buttons(false);
+        document.getElementById("ret").innerHTML = "Loading...";
+        let user_id_bson = new stitch.BSON.ObjectId(self_user_id);
+        client.auth.loginWithCredential(credential).then(() =>
+            Promise.all([
+                db.collection('orders').find({"buyer_id": user_id_bson}, {"_id": 0, "buyer_id": 0}).asArray(),
+                db.collection('products').find().asArray(),
+                db.collection('ratings').find({"$or": [{"buyer_id": user_id_bson}, {"seller_id": user_id_bson}]}).asArray(),
+                db.collection('users').find({}, {"user_name": 1}).asArray(),
+            ]).then(ret => {
+                console.log("orders", ret[0]);
+                console.log("products", ret[1]);
+                console.log("ratings", ret[2]);
+                console.log("users", ret[3]);
+                parse_orders(ret[0]);
+                parse_products(ret[1]);
+                parse_ratings(ret[2]);
+                parse_users(ret[3]);
+                update_user_profile();
+                update_order_history();
+                switch_all_buttons(true);
+                document.getElementById("ret").innerHTML = "<br>";
+            })
+        ).catch(err => {
+            console.log(err);
+            document.getElementById("ret").innerHTML = "Failed to connect to the database!." + "<br><br>" + err;
+        })
+    }
+
+    function rate(rating_id){
+        switch_rate_buttons(false);
+        let rate = parseInt(document.querySelector(`select[id=\"${rating_id}\"]`).value);
+        let rating_id2 = ratings[rating_id]["rating_id"];
+        let rating_id2_bson = new stitch.BSON.ObjectId(rating_id2);
+        db.collection("ratings").updateOne({"_id": rating_id2_bson}, {"$set": {"rate": rate}})
+            .then(ret => {
+                console.log(ret);
+                ratings[rating_id]["rate"] = rate;
+                update_order_history();
+                switch_rate_buttons(true);
+            })
+            .catch(err => {
+                console.log(err);
+                alert("Failed to connect to the database!." + "<br><br>" + err);
+            });
+    }
+
+    function reset_order_history(){
+        let table = document.getElementById("order_history");
+        table.innerHTML = "<thead><tr><th>Product Photo</th><th>Product Name</th><th>Price</th><th>Quantity</th>" +
+            "<th>Seller Name</th><th>Your Rate</th></tr></thead>";
+    }
+
+    function switch_all_buttons(state){
+        switch_rate_buttons(state);
+        switch_transaction_buttons(state);
+    }
+
+    function switch_rate_buttons(state){
+        document.querySelectorAll('button.rate').forEach(button => button.disabled = !state);
+    }
+
+    function switch_transaction_buttons(state){
+        document.querySelectorAll('button.transaction').forEach(button => button.disabled = !state);
+    }
+
+    function update_balance(amount){
+        switch_transaction_buttons(false);
+        document.getElementById("ret").innerHTML = "Updating balance...";
+
+        let user_id_bson = new stitch.BSON.ObjectId(self_user_id);
+
+        db.collection('users').updateOne({"_id": user_id_bson}, {"$set": {"balance": self_balance + amount}})
+            .then(ret => {
+                console.log(ret);
+                self_balance += amount;
+                localStorage.setItem("self_balance", self_balance);
+                update_user_profile();
+                document.getElementById("ret").innerHTML = "Updated balance!";
+                switch_transaction_buttons(true);
+                alert("Your wallet has been updated!");
+            })
+            .catch(err => {
+                document.getElementById("ret").innerHTML = "Failed to connect to the database!" + "<br><br>" + err;
+                switch_transaction_buttons(true);
+                alert("Failed to connect to the database!" + "<br><br>" + err);
+            });
+    }
+
+    function update_order_history(){
+        reset_order_history();
+        for (i in orders){
+            let photo_link = products[orders[i]["product_id"]]["photo_link"];
+            let product_name = products[orders[i]["product_id"]]["product_name"];
+            let price = orders[i]["price"];
+            let quantity = orders[i]["quantity"];
+            let seller_name = users[orders[i]["seller_id"]]["user_name"];
+            let rating_id = orders[i]["seller_id"].toString() + orders[i]["product_id"].toString();
+            append_order(photo_link, product_name, price, quantity, seller_name, rating_id);
+        }
+    }
+
+    function update_user_profile(){
+        document.getElementById("user_id").innerHTML = "User ID: " + self_user_id;
+        document.getElementById("user_name").innerHTML = "User Name: " + self_user_name;
+        document.getElementById("wallet").innerHTML = "Wallet: " + self_balance;
+        document.getElementById("rating").innerHTML = "Rating: " + rating;
+    }
+
+    function withdraw(){
+        let amount_text_box = document.getElementById("amount");
+        let amount = parseInt(amount_text_box.value);
+        amount_text_box.value = "";
+        if (!isFinite(amount)){
+            alert("Withdraw amount must be a number");
+            return;
+        }
+        if (amount > self_balance){
+            alert("Withdraw amount cannot be greater than current balance!");
+            return;
+        }
+        if (amount < 1){
+            alert("Withdraw amount cannot be negative or zero!");
+            return;
+        }
+        update_balance(-amount);
+    }
+
+    const client = stitch.Stitch.initializeDefaultAppClient('e2099760-hgltb');
+
+    const credential = new stitch.UserApiKeyCredential(
+        "at2XSm7j70Ph0xhvDI5zNW1lMu5oc1rZXTZRntZRMOT0AupxmT524Dauhf7gnDIz");
+
+    const db = client.getServiceClient(stitch.RemoteMongoClient.factory, 'service-e2099760').db('database-e2099760');
+
+    let self_user_id = localStorage.getItem("self_user_id");
+    let self_user_name = localStorage.getItem("self_user_name");
+    let self_balance = parseInt(localStorage.getItem("self_balance"), 10);
+    let rating = "-";
+
+    let orders = [];
+    let products = {};
+    let ratings = {};
+    let users = {};
+
+    check_user_profile();
+    update_user_profile();
+    reset_order_history();
+    query_order_history();
+</script>
+</html>

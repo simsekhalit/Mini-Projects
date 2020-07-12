@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CENG495 - Homework 2</title>
+</head>
+<style>
+    table, th, td {
+        border: 1px solid black;
+        width: 90%;
+    }
+    img {
+        width:200px;height:200px;
+    }
+    td{
+        text-align:center;
+    }
+</style>
+<body>
+<p id="ret" style="color:darkred;"><br></p>
+<button id="button_back" onclick="back()">Back</button>
+<p id="self_balance">Balance: </p>
+<h3>Your Products</h3>
+<table id="user_products"></table>
+<h3>Other Products</h3>
+<table id="other_products"></table>
+</body>
+<script src="https://s3.amazonaws.com/stitch-sdks/js/bundles/4.3.1/stitch.js"></script>
+<script>
+    function append_other_products(market_id, photo_link, product_name, price, quantity_on_sale, seller_name, seller_rating){
+        let other_products = document.getElementById("other_products");
+        let tr = document.createElement("tr");
+
+        let action = `Quantity:<input id="${market_id}" type="text"><button class="quantity" onclick="buy(\'${market_id}\')">Buy</button>`;
+
+        tr.innerHTML = `<td><img src=${photo_link} alt=""></td><td>${product_name}</td><td>${price}</td><td>${quantity_on_sale}</td><td>${seller_name}</td>` +
+            `<td>${seller_rating}</td><td>${action}</td>`;
+        other_products.appendChild(tr);
+    }
+
+    function append_user_products(market_id, photo_link, product_name, price, quantity_total, quantity_on_sale){
+        let user_products = document.getElementById("user_products");
+        let tr = document.createElement("tr");
+
+        let action = `<input id="${market_id}" type="text"><button class="quantity" onclick="change_quantity(\'${market_id}\')">Change Quantity</button>`;
+        if (quantity_on_sale > 0){
+            action += `<button class="quantity" onclick="drop_product(\'${market_id}\')">Drop Product</button>`
+        }
+
+        tr.innerHTML = `<td><img src=${photo_link} alt=""></td><td>${product_name}</td><td>${price}</td><td>${quantity_total}</td><td>${quantity_on_sale}</td>` +
+            `<td>${action}</td>`;
+        user_products.appendChild(tr);
+    }
+
+    function back(){
+        window.location.replace("user.html");
+    }
+
+    function buy(market_id){
+        let delete_after = false;
+        let add_abc = false;
+        let add_id;
+
+        let elem = document.getElementById(market_id);
+        let quantity = parseInt(elem.value);
+        elem.value = "";
+
+        if (!isFinite(quantity)){
+            alert("Please provide a number!");
+            return;
+        }
+
+        if (quantity < 1){
+            alert("Please give a number greater than 0!");
+            return;
+        }
+
+        if (quantity > market[market_id]["quantity_on_sale"]){
+            alert("You cannot buy more than there are!");
+            return;
+        }
+
+        if (quantity * market[market_id]["price"] > users[self_user_id]["balance"]){
+            alert("You do not have enough money!");
+            return;
+        }
+
+        switch_quantity(false);
+
+        if (quantity === market[market_id]["quantity_total"]){
+            delete_after = true;
+        }
+
+        for (x in market){
+            if (market[x]["seller_id"].toString() === self_user_id && market[x]["product_id"].toString() === market[market_id]["product_id"].toString()){
+                add_abc = true;
+                add_id = x;
+                break;
+            }
+        }
+
+        let promises = [];
+
+        if (!ratings[market[market_id]["seller_id"].toString() + market[market_id]["product_id"].toString()]){
+            promises.push(db.collection("ratings").insertOne({"product_id": new stitch.BSON.ObjectId(market[market_id]["product_id"]), "seller_id": new stitch.BSON.ObjectId(market[market_id]["seller_id"]), "buyer_id": new stitch.BSON.ObjectId(self_user_id), "rate": 0}))
+        }
+
+        promises.push(db.collection("orders").insertOne({"product_id": new stitch.BSON.ObjectId(market[market_id]["product_id"]), "price": market[market_id]["price"], "quantity": quantity, "seller_id": new stitch.BSON.ObjectId(market[market_id]["seller_id"]), "buyer_id": new stitch.BSON.ObjectId(self_user_id)}));
+
+        promises.push(db.collection("users").updateOne({"_id": new stitch.BSON.ObjectId(self_user_id)}, {"$set": {"balance": users[self_user_id]["balance"] - quantity * market[market_id]["price"]}}));
+
+        promises.push(db.collection("users").updateOne({"_id": new stitch.BSON.ObjectId(market[market_id]["seller_id"])}, {"$set": {"balance": users[market[market_id]["seller_id"].toString()]["balance"] + quantity * market[market_id]["price"]}}))
+
+        if (add_abc){
+            let x_bson = new stitch.BSON.ObjectId(x);
+            promises.push(db.collection("market").updateOne({"_id": new stitch.BSON.ObjectId(add_id)}, {"$set": {"quantity_total": quantity + market[add_id]["quantity_total"]}}));
+        }
+        else{
+            promises.push(db.collection("market").insertOne({"product_id": new stitch.BSON.ObjectId(market[market_id]["product_id"]), "seller_id": new stitch.BSON.ObjectId(self_user_id), "price": market[market_id]["price"], "quantity_total": quantity, "quantity_on_sale": 0}));
+        }
+
+        if (delete_after){
+            promises.push(db.collection("market").deleteOne({"_id": new stitch.BSON.ObjectId(market_id)}));
+        }
+        else{
+            promises.push(db.collection("market").updateOne({"_id": new stitch.BSON.ObjectId(market_id)}, {"$set": {"quantity_total": market[market_id]["quantity_total"] - quantity, "quantity_on_sale": market[market_id]["quantity_on_sale"] - quantity}}));
+        }
+
+        Promise.all(promises)
+            .then(ret => {
+                console.log(ret);
+                query_market();
+            })
+            .catch(err => {
+                console.log(err);
+                query_market();
+            })
+    }
+
+    function change_quantity(market_id){
+        let elem = document.getElementById(market_id);
+        let quantity = parseInt(elem.value);
+        elem.value = "";
+
+        if (!isFinite(quantity)){
+            alert("Please provide a number!");
+            return;
+        }
+
+        if (quantity < 1){
+            alert("Please give a number greater than 0!");
+            return;
+        }
+
+        if (quantity > market[market_id]["quantity_total"]){
+            alert("You cannot sell more than you have!");
+            return;
+        }
+
+        let market_id_bson = new stitch.BSON.ObjectId(market_id);
+        switch_quantity(false);
+        db.collection("market").updateOne({"_id": market_id_bson}, {"$set": {"quantity_on_sale": quantity}})
+            .then(ret => {
+                console.log(ret);
+                market[market_id]["quantity_on_sale"] = quantity;
+                switch_quantity(true);
+                update_market();
+            })
+            .catch(err => {
+                console.log(err);
+                switch_quantity(true);
+            })
+    }
+
+    function check_user_profile(){
+        if (!self_user_id || !self_user_name || !self_balance){
+            window.location.replace("index.html")
+        }
+    }
+
+    function drop_product(market_id){
+        let market_id_bson = new stitch.BSON.ObjectId(market_id);
+        switch_quantity(false);
+        db.collection("market").updateOne({"_id": market_id_bson}, {"$set": {"quantity_on_sale": 0}})
+            .then(ret => {
+                console.log(ret);
+                market[market_id]["quantity_on_sale"] = 0;
+                switch_quantity(true);
+                update_market();
+            })
+            .catch(err => {
+                console.log(err);
+                switch_quantity(true);
+            })
+    }
+
+    function parse_market(query_market){
+        for (let i in query_market){
+            let market_id = query_market[i]["_id"].toString();
+            market[market_id] = query_market[i];
+        }
+    }
+
+    function parse_products(query_products){
+        for (i in query_products){
+            let product_id = query_products[i]["_id"].toString();
+            let product_name = query_products[i]["product_name"];
+            let photo_link = query_products[i]["photo_link"];
+            products[product_id] = {"product_name": product_name, "photo_link": photo_link};
+        }
+    }
+
+    function parse_ratings(query_ratings){
+        for (i in users){
+            users[i]["rating_total"] = 0;
+            users[i]["rating_count"] = 0;
+        }
+
+        for (i in query_ratings){
+            let seller_id = query_ratings[i]["seller_id"].toString();
+            let product_id = query_ratings[i]["product_id"].toString();
+            users[seller_id]["rating_total"] += query_ratings[i]["rate"];
+            users[seller_id]["rating_count"]++;
+
+            ratings[seller_id + product_id] = query_ratings[i];
+        }
+        for (i in users){
+            if (users[i]["rating_total"] === 0){
+                users[i]["rating"] = "-";
+            }
+            else{
+                users[i]["rating"] = (users[i]["rating_total"] / users[i]["rating_count"]).toFixed(1);
+            }
+            delete users[i]["rating_total"];
+            delete users[i]["rating_count"];
+        }
+    }
+
+    function parse_users(query_users){
+        for (let i in query_users){
+            let user_id = query_users[i]["_id"].toString();
+            let user_name = query_users[i]["user_name"];
+            let balance = query_users[i]["balance"];
+            users[user_id] = {"user_name": user_name, "balance": balance}
+        }
+    }
+
+    function query_market(){
+        switch_all_buttons(false);
+        document.getElementById("ret").innerHTML = "Loading...";
+        // let user_id_bson = new stitch.BSON.ObjectId(self_user_id);
+        client.auth.loginWithCredential(credential).then(() =>
+            Promise.all([
+                db.collection('market').find().asArray(),
+                db.collection('products').find().asArray(),
+                db.collection('ratings').find().asArray(),
+                db.collection('users').find().asArray(),
+            ]).then(ret => {
+                console.log("market", ret[0]);
+                console.log("products", ret[1]);
+                console.log("ratings", ret[2]);
+                console.log("users", ret[3]);
+                parse_market(ret[0]);
+                parse_products(ret[1]);
+                parse_users(ret[3]);
+                parse_ratings(ret[2]);
+                update_market();
+                switch_all_buttons(true);
+                document.getElementById("ret").innerHTML = "<br>";
+            })
+        ).catch(err => {
+            console.log(err);
+            document.getElementById("ret").innerHTML = "Failed to connect to the database!." + "<br><br>" + err;
+        })
+    }
+
+    function reset_market(){
+        let table = document.getElementById("user_products");
+        table.innerHTML = "<thead><tr><th>Product Photo</th><th>Product Name</th>" +
+            "<th>Price</th><th>Quantity Total</th><th>Quantity on sale</th><th>Action</th></thead>";
+        table = document.getElementById("other_products");
+        table.innerHTML = "<thead><tr><th>Product Photo</th><th>Product Name</th>" +
+            "<th>Price</th><th>Quantity</th><th>Seller's Name</th><th>Seller's Rating</th><th>Action</th></thead>";
+    }
+
+    function switch_all_buttons(state){
+
+    }
+
+    function switch_quantity(state){
+        document.querySelectorAll('button.quantity').forEach(button => button.disabled = !state);
+    }
+
+    function update_market(){
+        self_balance = users[self_user_id]["balance"];
+
+        localStorage.setItem("self_balance", self_balance);
+
+        document.getElementById("self_balance").innerHTML = "Balance: " + self_balance;
+
+        reset_market();
+
+        for (let i in market){
+            let market_id = market[i]["_id"].toString();
+            let product_id = market[i]["product_id"].toString();
+            let seller_id = market[i]["seller_id"].toString();
+            let seller_name = users[seller_id]["user_name"];
+            let product_name = products[product_id]["product_name"];
+            let photo_link = products[product_id]["photo_link"];
+            let price = market[i]["price"];
+            let quantity_total = market[i]["quantity_total"];
+            let quantity_on_sale = market[i]["quantity_on_sale"];
+            let seller_rating = users[seller_id]["rating"];
+
+            if (seller_id === self_user_id){
+                append_user_products(market_id, photo_link, product_name, price, quantity_total, quantity_on_sale);
+            }
+            else{
+                if (quantity_on_sale > 0){
+                    append_other_products(market_id, photo_link, product_name, price, quantity_on_sale, seller_name, seller_rating);
+                }
+            }
+        }
+    }
+
+    const client = stitch.Stitch.initializeDefaultAppClient('e2099760-hgltb');
+
+    const credential = new stitch.UserApiKeyCredential(
+        "at2XSm7j70Ph0xhvDI5zNW1lMu5oc1rZXTZRntZRMOT0AupxmT524Dauhf7gnDIz");
+
+    const db = client.getServiceClient(stitch.RemoteMongoClient.factory, 'service-e2099760').db('database-e2099760');
+
+    let self_user_id = localStorage.getItem("self_user_id");
+    let self_user_name = localStorage.getItem("self_user_name");
+    let self_balance = parseInt(localStorage.getItem("self_balance"), 10);
+    let market = {};
+    let ratings = {};
+    let products = {};
+    let users = {};
+
+    check_user_profile();
+    reset_market();
+    query_market();
+
+</script>
+</html>

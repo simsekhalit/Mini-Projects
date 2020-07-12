@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CENG495 - Homework 2</title>
+</head>
+<style>
+    table, th, td {
+        border: 1px solid black;
+    }
+</style>
+<body>
+<p id="ret" style="color:darkred;"><br></p>
+<h4>Users</h4>
+<table id="user_list" style="width:50%">
+    <thead>
+    <tr>
+        <th>User ID</th>
+        <th>User Name</th>
+        <th>Balance</th>
+    </tr>
+    </thead>
+</table>
+<br>
+<button disabled id="button_login_as" onclick="login_as()">Login As</button>
+<button disabled id="button_delete_user" onclick="delete_user()">Delete User</button>
+<br><br>
+<b>New User</b>
+<br>
+<label>
+    Name: &nbsp;&nbsp;
+    <input id="add_user_name">
+</label>
+<br>
+<label>
+    Balance:
+    <input id="add_user_balance">
+</label>
+<br>
+<button disabled id="button_add_user" onclick="add_user()">Add User</button>
+</body>
+<script src="https://s3.amazonaws.com/stitch-sdks/js/bundles/4.3.1/stitch.js"></script>
+<script>
+    function add_user(){
+        switch_buttons(false);
+        document.getElementById("ret").innerHTML = "Loading...";
+        let user_name = document.getElementById("add_user_name").value;
+        if (user_name === ""){
+            document.getElementById("ret").innerHTML = "User name must be given!";
+            switch_buttons(true);
+            return;
+        }
+        let balance = parseInt(document.getElementById("add_user_balance").value, 10);
+        if (isNaN(balance)) {
+            document.getElementById("ret").innerHTML = "Balance must be a number!";
+            switch_buttons(true);
+            return;
+        }
+        db.collection('users').insertOne({"user_name": user_name, "balance": balance, "is_active": true})
+            .then(ret => {
+                console.log(ret);
+                users.push({"_id": ret.insertedId, "user_name": user_name, "balance": balance});
+                update_user_list();
+                document.getElementById("ret").innerHTML = "User: " + user_name + " has been added.";
+                switch_buttons(true);
+            }).catch(err => {
+                console.log(err);
+                document.getElementById("ret").innerHTML = "Failed to add user: " + user_name + "<br><br>" + err;
+                switch_buttons(true);
+            }
+        );
+    }
+
+    function append_user(user_id, user_name, balance){
+        let user_list = document.getElementById("user_list");
+        let tr = document.createElement("tr");
+        let td = document.createElement("td");
+        td.appendChild(create_radio(user_id));
+        console.log(td);
+        td.append(user_id);
+        tr.appendChild(td);
+        td = document.createElement("td");
+        td.innerHTML = user_name;
+        tr.appendChild(td);
+        td = document.createElement("td");
+        td.innerHTML = balance;
+        tr.appendChild(td);
+        user_list.appendChild(tr);
+    }
+
+    function create_radio(user_id){
+        let input = document.createElement("input");
+        input.setAttribute("type", "radio");
+        input.setAttribute("name", "selected_user");
+        input.setAttribute("value", user_id);
+        return input
+    }
+
+    function delete_user(){
+        switch_buttons(false);
+        document.getElementById("ret").innerHTML = "Loading...";
+        let user_id = document.querySelector('input[name = \"selected_user\"]:checked').value;
+        let user_id_bson = new stitch.BSON.ObjectId(user_id);
+        let user_name;
+        db.collection('users').updateOne({"_id": user_id_bson}, {"$set": {"is_active": false}})
+            .then(ret => {
+                console.log(ret);
+                for (let i = 0; i < users.length; i++){
+                    if (user_id === users[i]._id.toString()){
+                        user_name = users[i].user_name;
+                        users.splice(i, 1);
+                        break;
+                    }
+                }
+                update_user_list();
+                document.getElementById("ret").innerHTML = "User: " + user_name + " has been deleted.";
+                switch_buttons(true);
+            }).catch(err => {
+                console.log(err);
+                document.getElementById("ret").innerHTML = "Failed to delete user: " + user_name + "<br><br>" + err;
+                switch_buttons(true);
+            });
+        db.collection("products").deleteMany({"seller_id": user_id_bson})
+            .then(ret =>
+                console.log(ret)
+            ).catch(err =>
+                console.log(err)
+            )
+    }
+
+    function login_as(){
+        let user_id = document.querySelector('input[name = \"selected_user\"]:checked').value;
+        let user_name;
+        let balance;
+        for (let i = 0; i < users.length; i++){
+            if (user_id === users[i]._id.toString()){
+                user_name = users[i].user_name;
+                balance = users[i].balance;
+                break;
+            }
+        }
+        localStorage.setItem("self_user_id", user_id);
+        localStorage.setItem("self_user_name", user_name);
+        localStorage.setItem("self_balance", balance);
+        window.location.replace("user.html");
+    }
+
+    function query_users(){
+        switch_buttons(false);
+        document.getElementById("ret").innerHTML = "Loading...";
+        client.auth.loginWithCredential(credential).then(() =>
+            db.collection('users').find({"is_active": true}).asArray()
+        ).then(ret => {
+            console.log("users", ret);
+            users = ret;
+            update_user_list();
+            switch_buttons(true);
+            document.getElementById("ret").innerHTML = "<br>";
+        }).catch(err => {
+            console.log(err);
+            document.getElementById("ret").innerHTML = "Failed to connect to the database!." + "<br><br>" + err;
+            }
+        );
+    }
+
+    function switch_buttons(state){
+        let ret = state && users.length > 0;
+        document.getElementById("button_login_as").disabled = !ret;
+        document.getElementById("button_delete_user").disabled = !ret;
+        document.getElementById("button_add_user").disabled = !state;
+        if (state === true){
+            if (users.length > 0){
+
+            }
+        }
+
+    }
+
+    function update_user_list(){
+        if (users === []){
+            return
+        }
+        let user_list = document.getElementById("user_list");
+        user_list.innerHTML = "<thead><tr><th>User ID</th><th>User Name</th><th>Balance</th></tr></thead>";
+        for (let i = 0; i < users.length; i++) {
+            append_user(users[i]["_id"], users[i]["user_name"], users[i]["balance"]);
+        }
+        user_list.children[1].children[0].children[0].checked = true;
+    }
+
+    const client = stitch.Stitch.initializeDefaultAppClient(/*ENTER APPLICATION NAME HERE*/);
+
+    const credential = new stitch.UserApiKeyCredential(/*ENTER API KEY HERE*/);
+
+    const db = client.getServiceClient(stitch.RemoteMongoClient.factory, /*ENTER SERVICE NAME HERE*/).db(/*ENTER DATABASE NAME HERE*/);
+
+    let users = [];
+
+    query_users();
+
+</script>
+</html>
